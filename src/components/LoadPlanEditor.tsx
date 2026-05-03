@@ -221,12 +221,13 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-muted-foreground inline-block" /> Pax Door</span>
       </div>
 
-      {/* 2D Aircraft Fuselage - Portrait View */}
+      {/* 2D Aircraft Fuselage - Horizontal View */}
       <AircraftFuselage
         rows={plan.rows}
         cols={plan.cols}
         cells={plan.cells}
         doors={doors}
+        holdCompartments={plan.holdCompartments}
         selectedCell={selectedCell}
         getCellStatus={getCellStatus}
         onCellTap={handleCellTap}
