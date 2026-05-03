@@ -51,7 +51,6 @@ async function seedDefaults(db: IDBDatabase): Promise<void> {
   }
   return new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
 }
-}
 
 async function getStore(storeName: string, mode: IDBTransactionMode = 'readonly') {
   const db = await openDB();
