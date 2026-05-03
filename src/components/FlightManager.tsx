@@ -48,6 +48,7 @@ const FlightManager: React.FC<FlightManagerProps> = ({ onOpenPlan, onOpenTemplat
       col: pos.col,
       maxWeight: pos.maxWeight,
       enabled: pos.enabled,
+      label: pos.label,
       sequenceNumber: idx + 1,
     }));
 
@@ -60,6 +61,7 @@ const FlightManager: React.FC<FlightManagerProps> = ({ onOpenPlan, onOpenTemplat
       rows: template.rows,
       cols: template.cols,
       cells,
+      holdCompartments: template.holdCompartments,
       mode: newFlight.mode,
       version: 1,
       createdAt: Date.now(),
