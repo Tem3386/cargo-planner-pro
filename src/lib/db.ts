@@ -29,9 +29,28 @@ function openDB(): Promise<IDBDatabase> {
       }
     };
     
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      seedDefaults(db).then(() => resolve(db)).catch(() => resolve(db));
+    };
     request.onerror = () => reject(request.error);
   });
+}
+
+async function seedDefaults(db: IDBDatabase): Promise<void> {
+  const tx = db.transaction('templates', 'readwrite');
+  const store = tx.objectStore('templates');
+  const existing: AircraftTemplate[] = await new Promise((res, rej) => {
+    const r = store.getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  if (existing.length > 0) return;
+  const now = Date.now();
+  for (const t of DEFAULT_TEMPLATES) {
+    const full: AircraftTemplate = { ...t, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+    store.put(full);
+  }
+  return new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
+}
 }
 
 async function getStore(storeName: string, mode: IDBTransactionMode = 'readonly') {
