@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { saveFlightPlan, saveVersion, getVersionsByFlight } from '@/lib/db';
 import { checkSegregation, COMMODITIES } from '@/lib/segregation';
-import type { FlightPlan, CellData, CellStatus, FlightVersion } from '@/lib/types';
+import { getDoorsForAircraft } from '@/lib/doors';
+import type { FlightPlan, CellData, CellStatus, FlightVersion, ULDType } from '@/lib/types';
+import { ULD_TYPES } from '@/lib/types';
+import AircraftFuselage from '@/components/AircraftFuselage';
 import { useToast } from '@/hooks/use-toast';
 import { AlertTriangle, Save, RotateCcw, History } from 'lucide-react';
 
@@ -20,18 +22,19 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
   const { toast } = useToast();
   const [plan, setPlan] = useState<FlightPlan>(initialPlan);
   const [selectedCell, setSelectedCell] = useState<{ row: number; col: number } | null>(null);
-  const [entryForm, setEntryForm] = useState({ uldId: '', weight: '', commodity: '' });
+  const [entryForm, setEntryForm] = useState({ uldId: '', weight: '', commodity: '', uldType: '' as string });
   const [conflicts, setConflicts] = useState<Map<string, string[]>>(new Map());
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [conflictDetails, setConflictDetails] = useState<{ message: string }[]>([]);
   const [versions, setVersions] = useState<FlightVersion[]>([]);
   const [showVersions, setShowVersions] = useState(false);
 
+  const doors = useMemo(() => getDoorsForAircraft(plan.aircraftType), [plan.aircraftType]);
+
   useEffect(() => {
     getVersionsByFlight(plan.id).then(setVersions);
   }, [plan.id, plan.version]);
 
-  // Recompute conflicts whenever cells change
   useEffect(() => {
     const newConflicts = new Map<string, string[]>();
     for (const cell of plan.cells) {
@@ -58,18 +61,6 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
     return 'loaded';
   }, [conflicts]);
 
-  const getCellClass = (status: CellStatus, isSelected: boolean) => {
-    const base = 'touch-target aspect-square rounded-md flex flex-col items-center justify-center text-xs font-mono transition-all cursor-pointer relative';
-    const statusClass = {
-      empty: 'cell-empty',
-      loaded: 'cell-loaded',
-      overload: 'cell-overload',
-      conflict: 'cell-conflict',
-      active: 'cell-active',
-    }[status];
-    return `${base} ${statusClass} ${isSelected ? 'cell-active' : ''}`;
-  };
-
   const handleCellTap = (cell: CellData) => {
     setSelectedCell({ row: cell.row, col: cell.col });
     if (cell.entry) {
@@ -77,12 +68,12 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
         uldId: cell.entry.uldId,
         weight: String(cell.entry.weight),
         commodity: cell.entry.commodity,
+        uldType: cell.entry.uldType || '',
       });
     } else {
-      setEntryForm({ uldId: '', weight: '', commodity: '' });
+      setEntryForm({ uldId: '', weight: '', commodity: '', uldType: '' });
     }
 
-    // Show conflict details if any
     const key = `${cell.row}-${cell.col}`;
     if (conflicts.has(key)) {
       setConflictDetails(conflicts.get(key)!.map(reason => ({ message: reason })));
@@ -92,8 +83,8 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
 
   const handleSaveEntry = () => {
     if (!selectedCell) return;
-    if (!entryForm.uldId.trim() || !entryForm.weight || !entryForm.commodity) {
-      toast({ title: 'Error', description: 'All fields required', variant: 'destructive' });
+    if (!entryForm.uldId.trim() || !entryForm.weight || !entryForm.commodity || !entryForm.uldType) {
+      toast({ title: 'Error', description: 'All fields required (including ULD type)', variant: 'destructive' });
       return;
     }
 
@@ -102,28 +93,28 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
       if (c.row === selectedCell.row && c.col === selectedCell.col) {
         return {
           ...c,
-          entry: { uldId: entryForm.uldId.trim(), weight, commodity: entryForm.commodity },
+          entry: {
+            uldId: entryForm.uldId.trim(),
+            weight,
+            commodity: entryForm.commodity,
+            uldType: entryForm.uldType as ULDType,
+          },
         };
       }
       return c;
     });
 
-    // Check segregation
     const segregationResults = checkSegregation(entryForm.commodity, selectedCell.row, selectedCell.col, updatedCells);
     if (segregationResults.length > 0) {
       setConflictDetails(segregationResults.map(r => ({
-        message: `Warning: ${entryForm.commodity} and ${r.conflicting.entry?.commodity} cannot be adjacent due to ${r.reason}`,
+        message: `Warning: ${entryForm.commodity} and ${r.conflicting.entry?.commodity} cannot be adjacent — ${r.reason}`,
       })));
       setShowConflictModal(true);
     }
 
     const cell = plan.cells.find(c => c.row === selectedCell.row && c.col === selectedCell.col);
     if (cell && weight > cell.maxWeight) {
-      toast({
-        title: '⚠️ Overweight',
-        description: `${weight}kg exceeds limit of ${cell.maxWeight}kg`,
-        variant: 'destructive',
-      });
+      toast({ title: '⚠️ Overweight', description: `${weight}kg exceeds limit of ${cell.maxWeight}kg`, variant: 'destructive' });
     }
 
     setPlan(prev => ({ ...prev, cells: updatedCells }));
@@ -141,13 +132,11 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
     });
     setPlan(prev => ({ ...prev, cells: updatedCells }));
     setSelectedCell(null);
-    setEntryForm({ uldId: '', weight: '', commodity: '' });
+    setEntryForm({ uldId: '', weight: '', commodity: '', uldType: '' });
   };
 
   const handleSavePlan = async () => {
     const newVersion = plan.version + 1;
-    
-    // Save current state as a version
     const version: FlightVersion = {
       id: crypto.randomUUID(),
       flightPlanId: plan.id,
@@ -156,18 +145,15 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
       savedAt: Date.now(),
     };
     await saveVersion(version);
-    
     const updatedPlan = { ...plan, version: newVersion, updatedAt: Date.now() };
     await saveFlightPlan(updatedPlan);
     setPlan(updatedPlan);
-    
     toast({ title: 'Saved', description: `Version ${newVersion} saved` });
   };
 
   const handleRestoreVersion = async (version: FlightVersion) => {
     const newVersion = plan.version + 1;
     const updatedPlan = { ...plan, cells: version.cells, version: newVersion, updatedAt: Date.now() };
-    
     const versionRecord: FlightVersion = {
       id: crypto.randomUUID(),
       flightPlanId: plan.id,
@@ -177,7 +163,6 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
       note: `Before restore to v${version.version}`,
     };
     await saveVersion(versionRecord);
-    
     await saveFlightPlan(updatedPlan);
     setPlan(updatedPlan);
     setShowVersions(false);
@@ -192,18 +177,18 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={onBack} className="touch-target">← Back</Button>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" onClick={onBack} className="touch-target px-2">←</Button>
           <div>
             <h2 className="text-lg font-semibold">{plan.flightNumber}</h2>
             <p className="text-xs text-muted-foreground font-mono">
-              {plan.aircraftType} • {plan.templateName} • v{plan.version} • {plan.mode.toUpperCase()}
+              {plan.aircraftType} • v{plan.version} • {plan.mode.toUpperCase()}
             </p>
           </div>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setShowVersions(true)} className="touch-target">
-            <History className="w-4 h-4 mr-1" />History
+            <History className="w-4 h-4" />
           </Button>
           <Button size="sm" onClick={handleSavePlan} className="touch-target">
             <Save className="w-4 h-4 mr-1" />Save
@@ -211,88 +196,51 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
         </div>
       </div>
 
-      {/* Stats Bar */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="bg-secondary rounded-lg p-3 text-center">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider">Loaded</div>
-          <div className="text-xl font-mono font-bold">{loadedCount}/{totalPositions}</div>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-secondary rounded-lg p-2 text-center">
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Loaded</div>
+          <div className="text-lg font-mono font-bold">{loadedCount}/{totalPositions}</div>
         </div>
-        <div className="bg-secondary rounded-lg p-3 text-center">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider">Total Weight</div>
-          <div className="text-xl font-mono font-bold">{totalWeight.toLocaleString()}kg</div>
+        <div className="bg-secondary rounded-lg p-2 text-center">
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Weight</div>
+          <div className="text-lg font-mono font-bold">{totalWeight.toLocaleString()}<span className="text-xs">kg</span></div>
         </div>
-        <div className="bg-secondary rounded-lg p-3 text-center">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider">Conflicts</div>
-          <div className={`text-xl font-mono font-bold ${conflicts.size > 0 ? 'text-status-conflict' : 'text-status-loaded'}`}>
+        <div className="bg-secondary rounded-lg p-2 text-center">
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Conflicts</div>
+          <div className={`text-lg font-mono font-bold ${conflicts.size > 0 ? 'text-status-conflict' : 'text-status-loaded'}`}>
             {conflicts.size}
           </div>
         </div>
-        <div className="bg-secondary rounded-lg p-3 text-center">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider">Version</div>
-          <div className="text-xl font-mono font-bold">v{plan.version}</div>
-        </div>
       </div>
 
-      {/* Grid */}
-      <div className="bg-secondary/50 rounded-lg p-4 border border-border">
-        <div className="flex items-center justify-center mb-2">
-          <div className="h-0.5 flex-1 bg-muted-foreground/30 rounded" />
-          <span className="px-3 text-xs text-muted-foreground font-mono">FWD</span>
-          <div className="h-0.5 flex-1 bg-muted-foreground/30 rounded" />
-        </div>
-
-        <div
-          className="grid gap-2 mx-auto"
-          style={{ gridTemplateColumns: `repeat(${plan.cols}, minmax(0, 1fr))`, maxWidth: `${plan.cols * 100}px` }}
-        >
-          {plan.cells.filter(c => c.enabled).sort((a, b) => a.row === b.row ? a.col - b.col : a.row - b.row).map(cell => {
-            const status = getCellStatus(cell);
-            const isSelected = selectedCell?.row === cell.row && selectedCell?.col === cell.col;
-            return (
-              <button
-                key={`${cell.row}-${cell.col}`}
-                onClick={() => handleCellTap(cell)}
-                className={getCellClass(status, isSelected)}
-              >
-                {plan.mode === 'loading' && cell.sequenceNumber && !cell.entry && (
-                  <span className="text-lg font-bold text-foreground/30">{cell.sequenceNumber}</span>
-                )}
-                {cell.entry ? (
-                  <>
-                    <span className="text-[10px] text-foreground/90 font-semibold truncate w-full text-center">{cell.entry.uldId}</span>
-                    <span className="text-[10px]">{cell.entry.weight}kg</span>
-                    <span className="text-[8px] text-foreground/70 truncate w-full text-center">{cell.entry.commodity}</span>
-                  </>
-                ) : (
-                  <span className="text-foreground/50">{String.fromCharCode(65 + cell.row)}{cell.col + 1}</span>
-                )}
-                {status === 'conflict' && (
-                  <AlertTriangle className="absolute top-0.5 right-0.5 w-3 h-3" />
-                )}
-                {status === 'overload' && (
-                  <span className="absolute top-0.5 right-0.5 text-[8px] font-bold">OVR</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center justify-center mt-2">
-          <div className="h-0.5 flex-1 bg-muted-foreground/30 rounded" />
-          <span className="px-3 text-xs text-muted-foreground font-mono">AFT</span>
-          <div className="h-0.5 flex-1 bg-muted-foreground/30 rounded" />
-        </div>
+      {/* Door Legend */}
+      <div className="flex gap-3 justify-center text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-primary inline-block" /> Cargo Door</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-status-conflict inline-block" /> Bulk Door</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-muted-foreground inline-block" /> Pax Door</span>
       </div>
+
+      {/* 2D Aircraft Fuselage - Portrait View */}
+      <AircraftFuselage
+        rows={plan.rows}
+        cols={plan.cols}
+        cells={plan.cells}
+        doors={doors}
+        selectedCell={selectedCell}
+        getCellStatus={getCellStatus}
+        onCellTap={handleCellTap}
+      />
 
       {/* Legend */}
-      <div className="flex gap-4 justify-center text-xs">
+      <div className="flex gap-3 justify-center text-xs flex-wrap">
         <div className="flex items-center gap-1"><div className="w-3 h-3 rounded cell-empty" /> Empty</div>
         <div className="flex items-center gap-1"><div className="w-3 h-3 rounded cell-loaded" /> Loaded</div>
         <div className="flex items-center gap-1"><div className="w-3 h-3 rounded cell-overload" /> Overload</div>
         <div className="flex items-center gap-1"><div className="w-3 h-3 rounded cell-conflict" /> Conflict</div>
       </div>
 
-      {/* Entry form */}
+      {/* ULD Entry Form */}
       {selectedCell && (
         <div className="bg-card rounded-lg p-4 border border-border space-y-3">
           <div className="flex items-center justify-between">
@@ -304,13 +252,35 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
             </Label>
             <Button variant="ghost" size="sm" onClick={() => setSelectedCell(null)}>✕</Button>
           </div>
+
+          {/* ULD Type selector - prominent */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground uppercase">Container / Pallet Type</Label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {ULD_TYPES.map(u => (
+                <button
+                  key={u.value}
+                  onClick={() => setEntryForm(prev => ({ ...prev, uldType: u.value }))}
+                  className={`p-2 rounded-md text-center text-xs font-mono transition-all border ${
+                    entryForm.uldType === u.value
+                      ? 'bg-primary/20 border-primary text-primary-foreground'
+                      : 'bg-secondary border-border text-muted-foreground hover:border-muted-foreground/50'
+                  }`}
+                >
+                  <div className="font-semibold">{u.value}</div>
+                  <div className="text-[9px] opacity-70 leading-tight mt-0.5">{u.value.startsWith('P') ? 'Pallet' : 'Container'}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground uppercase">ULD ID</Label>
               <Input
                 value={entryForm.uldId}
                 onChange={e => setEntryForm(prev => ({ ...prev, uldId: e.target.value }))}
-                placeholder="e.g., AKE12345"
+                placeholder="AKE12345"
                 className="bg-secondary border-border font-mono"
               />
             </div>
