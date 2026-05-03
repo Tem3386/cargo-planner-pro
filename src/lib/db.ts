@@ -43,7 +43,16 @@ async function seedDefaults(db: IDBDatabase): Promise<void> {
   const existing: AircraftTemplate[] = await new Promise((res, rej) => {
     const r = store.getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   });
-  if (existing.length > 0) return;
+  // Re-seed if empty or if templates lack holdCompartments (old format)
+  const needsReseed = existing.length === 0 || existing.some(t => !t.holdCompartments);
+  if (!needsReseed) return;
+  // Remove old default templates (ones matching default aircraft types)
+  const defaultTypes = new Set(DEFAULT_TEMPLATES.map(t => t.aircraftType));
+  for (const t of existing) {
+    if (defaultTypes.has(t.aircraftType)) {
+      store.delete(t.id);
+    }
+  }
   const now = Date.now();
   for (const t of DEFAULT_TEMPLATES) {
     const full: AircraftTemplate = { ...t, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
