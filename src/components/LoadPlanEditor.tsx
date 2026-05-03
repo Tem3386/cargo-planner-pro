@@ -246,7 +246,7 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
         <div className="bg-card rounded-lg p-4 border border-border space-y-3">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-semibold">
-              Position {String.fromCharCode(65 + selectedCell.row)}{selectedCell.col + 1}
+              Position {plan.cells.find(c => c.row === selectedCell.row && c.col === selectedCell.col)?.label || `${String.fromCharCode(65 + selectedCell.row)}${selectedCell.col + 1}`}
               <span className="text-muted-foreground font-normal ml-2">
                 (Max: {plan.cells.find(c => c.row === selectedCell.row && c.col === selectedCell.col)?.maxWeight}kg)
               </span>
