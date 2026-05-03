@@ -1,152 +1,216 @@
 import React from 'react';
-import type { CellData, CellStatus, DoorLocation } from '@/lib/types';
+import type { CellData, CellStatus, DoorLocation, HoldCompartment } from '@/lib/types';
 
 interface AircraftFuselageProps {
   rows: number;
   cols: number;
   cells: CellData[];
   doors: DoorLocation[];
+  holdCompartments?: HoldCompartment[];
   selectedCell: { row: number; col: number } | null;
   getCellStatus: (cell: CellData) => CellStatus;
   onCellTap: (cell: CellData) => void;
 }
 
 const AircraftFuselage: React.FC<AircraftFuselageProps> = ({
-  rows, cols, cells, doors, selectedCell, getCellStatus, onCellTap,
+  rows, cols, cells, doors, holdCompartments, selectedCell, getCellStatus, onCellTap,
 }) => {
-  const sortedCells = [...cells].filter(c => c.enabled).sort((a, b) => a.row === b.row ? a.col - b.col : a.row - b.row);
+  const enabledCells = cells.filter(c => c.enabled);
 
-  // SVG dimensions - portrait orientation (tall & narrow)
-  const padding = 40;
-  const cellW = 64;
-  const cellH = 56;
-  const gridW = rows * cellW; // rows = across fuselage width
-  const gridH = cols * cellH; // cols = along fuselage length
-  const fuselageW = gridW + 80;
-  const fuselageH = gridH + 160;
+  // Horizontal layout: nose on left, tail on right
+  const cellW = 52;
+  const cellH = 44;
+  const padding = 50;
+  const noseLen = 60;
+  const tailLen = 50;
+  const compartmentGap = 8;
+
+  // Calculate compartment widths
+  const compartments = holdCompartments || [];
+  const hasCompartments = compartments.length > 0;
+
+  // Build column groups from compartments
+  let gridW = cols * cellW;
+  let compartmentOffsets: { startX: number; label: string; width: number }[] = [];
+
+  if (hasCompartments) {
+    let x = 0;
+    for (const comp of compartments) {
+      const colCount = comp.endCol - comp.startCol + 1;
+      const w = colCount * cellW;
+      compartmentOffsets.push({ startX: x, label: comp.label, width: w });
+      x += w + compartmentGap;
+    }
+    gridW = x - compartmentGap;
+  }
+
+  const gridH = rows * cellH;
+  const fuselageW = gridW + noseLen + tailLen + 40;
+  const fuselageH = gridH + 40;
   const svgW = fuselageW + padding * 2;
-  const svgH = fuselageH + padding * 2;
+  const svgH = fuselageH + padding * 2 + 30; // extra for compartment labels
+
   const fuselageX = padding;
-  const fuselageY = padding;
+  const fuselageY = padding + 20;
+  const bodyLeft = fuselageX + noseLen;
+  const bodyRight = fuselageX + fuselageW - tailLen;
+  const centerY = fuselageY + fuselageH / 2;
+  const gridX = bodyLeft + 20;
+  const gridY = centerY - gridH / 2;
 
-  // Nose tip and tail
-  const noseY = fuselageY;
-  const noseEndY = fuselageY + 80;
-  const tailY = fuselageY + fuselageH - 60;
-  const bodyTop = noseEndY;
-  const bodyBottom = tailY;
-  const centerX = fuselageX + fuselageW / 2;
-
-  // Grid origin
-  const gridX = centerX - gridW / 2;
-  const gridY = bodyTop + (bodyBottom - bodyTop - gridH) / 2;
+  // Get column X position accounting for compartment gaps
+  const getColX = (col: number): number => {
+    if (!hasCompartments) return gridX + col * cellW;
+    // Find which compartment this col belongs to
+    let x = gridX;
+    for (const compOff of compartmentOffsets) {
+      const compDef = holdCompartments!.find(h => h.label === compOff.label)!;
+      if (col >= compDef.startCol && col <= compDef.endCol) {
+        return x + (col - compDef.startCol) * cellW;
+      }
+      const colCount = compDef.endCol - compDef.startCol + 1;
+      x += colCount * cellW + compartmentGap;
+    }
+    return gridX + col * cellW;
+  };
 
   const statusColors: Record<CellStatus, string> = {
-    empty: 'hsl(220, 10%, 30%)',
-    loaded: 'hsl(142, 60%, 40%)',
-    overload: 'hsl(0, 72%, 51%)',
-    conflict: 'hsl(38, 92%, 50%)',
-    active: 'hsl(210, 70%, 55%)',
+    empty: 'hsl(220, 10%, 25%)',
+    loaded: 'hsl(142, 60%, 35%)',
+    overload: 'hsl(0, 72%, 45%)',
+    conflict: 'hsl(38, 92%, 45%)',
+    active: 'hsl(210, 70%, 50%)',
   };
 
-  const statusBorders: Record<CellStatus, string> = {
-    empty: 'hsl(220, 10%, 40%)',
-    loaded: 'hsl(142, 60%, 50%)',
-    overload: 'hsl(0, 72%, 61%)',
-    conflict: 'hsl(38, 92%, 60%)',
-    active: 'hsl(210, 70%, 65%)',
+  const statusStrokes: Record<CellStatus, string> = {
+    empty: 'hsl(220, 10%, 38%)',
+    loaded: 'hsl(142, 60%, 48%)',
+    overload: 'hsl(0, 72%, 58%)',
+    conflict: 'hsl(38, 92%, 58%)',
+    active: 'hsl(210, 70%, 62%)',
   };
+
+  // Get unique column labels (deduplicated for multi-row)
+  const colLabels = new Map<number, string>();
+  for (const cell of enabledCells) {
+    if (cell.label && !colLabels.has(cell.col)) {
+      colLabels.set(cell.col, cell.label);
+    }
+  }
 
   return (
-    <div className="w-full overflow-auto flex justify-center">
+    <div className="w-full overflow-x-auto">
       <svg
         viewBox={`0 0 ${svgW} ${svgH}`}
-        className="w-full max-w-sm"
-        style={{ minHeight: '500px' }}
+        className="w-full"
+        style={{ minHeight: '220px', maxHeight: '340px' }}
       >
         <defs>
-          <linearGradient id="fuselageGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="hsl(220, 15%, 18%)" />
-            <stop offset="100%" stopColor="hsl(220, 15%, 14%)" />
+          <linearGradient id="fuselageGradH" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="hsl(220, 15%, 20%)" />
+            <stop offset="100%" stopColor="hsl(220, 15%, 15%)" />
           </linearGradient>
-          <filter id="shadow">
-            <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="black" floodOpacity="0.3" />
+          <filter id="shadowH">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="black" floodOpacity="0.25" />
           </filter>
         </defs>
 
-        {/* Fuselage outline */}
+        {/* Fuselage outline - horizontal */}
         <path
           d={`
-            M ${centerX} ${noseY}
-            Q ${fuselageX + fuselageW} ${noseY + 30} ${fuselageX + fuselageW} ${noseEndY}
-            L ${fuselageX + fuselageW} ${tailY}
-            Q ${fuselageX + fuselageW} ${fuselageY + fuselageH} ${centerX} ${fuselageY + fuselageH}
-            Q ${fuselageX} ${fuselageY + fuselageH} ${fuselageX} ${tailY}
-            L ${fuselageX} ${noseEndY}
-            Q ${fuselageX} ${noseY + 30} ${centerX} ${noseY}
+            M ${fuselageX} ${centerY}
+            Q ${fuselageX} ${fuselageY} ${bodyLeft} ${fuselageY}
+            L ${bodyRight} ${fuselageY}
+            Q ${fuselageX + fuselageW} ${fuselageY} ${fuselageX + fuselageW} ${fuselageY + fuselageH * 0.35}
+            L ${fuselageX + fuselageW} ${fuselageY + fuselageH * 0.65}
+            Q ${fuselageX + fuselageW} ${fuselageY + fuselageH} ${bodyRight} ${fuselageY + fuselageH}
+            L ${bodyLeft} ${fuselageY + fuselageH}
+            Q ${fuselageX} ${fuselageY + fuselageH} ${fuselageX} ${centerY}
             Z
           `}
-          fill="url(#fuselageGrad)"
-          stroke="hsl(220, 15%, 30%)"
-          strokeWidth="2"
-          filter="url(#shadow)"
+          fill="url(#fuselageGradH)"
+          stroke="hsl(220, 15%, 32%)"
+          strokeWidth="1.5"
+          filter="url(#shadowH)"
         />
 
-        {/* Center line */}
+        {/* Center line along fuselage */}
         <line
-          x1={centerX} y1={noseEndY + 10}
-          x2={centerX} y2={tailY - 10}
-          stroke="hsl(220, 15%, 25%)"
-          strokeWidth="1"
-          strokeDasharray="6,4"
+          x1={bodyLeft + 5} y1={centerY}
+          x2={bodyRight - 5} y2={centerY}
+          stroke="hsl(220, 15%, 22%)"
+          strokeWidth="0.5"
+          strokeDasharray="4,3"
         />
 
         {/* FWD / AFT labels */}
-        <text x={centerX} y={noseY + 24} textAnchor="middle" fill="hsl(215, 15%, 55%)" fontSize="11" fontFamily="JetBrains Mono, monospace" fontWeight="600">FWD</text>
-        <text x={centerX} y={fuselageY + fuselageH - 16} textAnchor="middle" fill="hsl(215, 15%, 55%)" fontSize="11" fontFamily="JetBrains Mono, monospace" fontWeight="600">AFT</text>
+        <text x={fuselageX + 12} y={centerY + 4} textAnchor="middle" fill="hsl(215, 15%, 50%)" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="600">FWD</text>
+        <text x={fuselageX + fuselageW - 12} y={centerY + 4} textAnchor="middle" fill="hsl(215, 15%, 50%)" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="600">AFT</text>
 
         {/* Door locations */}
         {doors.map(door => {
-          const doorY = noseEndY + (bodyBottom - bodyTop) * door.position;
-          const doorX = door.side === 'left' ? fuselageX - 2 : fuselageX + fuselageW + 2;
-          const doorW = 8;
-          const doorH = 28;
-          const textX = door.side === 'left' ? doorX - 4 : doorX + doorW + 4;
-          const anchor = door.side === 'left' ? 'end' : 'start';
+          const doorX = bodyLeft + (bodyRight - bodyLeft) * door.position;
+          const isTop = door.side === 'left';
+          const doorY = isTop ? fuselageY - 2 : fuselageY + fuselageH + 2;
+          const doorW = 22;
+          const doorH = 6;
+          const textY = isTop ? doorY - 6 : doorY + doorH + 10;
           const doorColor = door.type === 'cargo' ? 'hsl(210, 70%, 55%)' : door.type === 'bulk' ? 'hsl(38, 92%, 50%)' : 'hsl(220, 10%, 45%)';
 
           return (
             <g key={door.id}>
               <rect
-                x={doorX}
-                y={doorY - doorH / 2}
-                width={doorW}
-                height={doorH}
-                rx={2}
-                fill={doorColor}
-                opacity={0.8}
+                x={doorX - doorW / 2} y={isTop ? doorY - doorH : doorY}
+                width={doorW} height={doorH}
+                rx={1.5}
+                fill={doorColor} opacity={0.8}
               />
-              <text
-                x={textX}
-                y={doorY + 4}
-                textAnchor={anchor}
-                fill={doorColor}
-                fontSize="8"
-                fontFamily="JetBrains Mono, monospace"
-                fontWeight="500"
-              >
+              <text x={doorX} y={textY} textAnchor="middle" fill={doorColor} fontSize="7" fontFamily="JetBrains Mono, monospace" fontWeight="500">
                 {door.label}
               </text>
             </g>
           );
         })}
 
-        {/* Cargo positions - row = across width, col = along length */}
-        {sortedCells.map(cell => {
-          const cx = gridX + cell.row * cellW;
-          const cy = gridY + cell.col * cellH;
+        {/* Hold compartment brackets and labels */}
+        {hasCompartments && compartmentOffsets.map((comp, i) => {
+          const x1 = getColX(holdCompartments![i].startCol);
+          const x2 = getColX(holdCompartments![i].endCol) + cellW;
+          const bracketY = gridY + gridH + 8;
+
+          return (
+            <g key={comp.label}>
+              {/* Bracket */}
+              <line x1={x1} y1={bracketY} x2={x2} y2={bracketY} stroke="hsl(215, 15%, 45%)" strokeWidth="1" />
+              <line x1={x1} y1={bracketY - 3} x2={x1} y2={bracketY + 3} stroke="hsl(215, 15%, 45%)" strokeWidth="1" />
+              <line x1={x2} y1={bracketY - 3} x2={x2} y2={bracketY + 3} stroke="hsl(215, 15%, 45%)" strokeWidth="1" />
+              {/* Label */}
+              <text x={(x1 + x2) / 2} y={bracketY + 14} textAnchor="middle" fill="hsl(215, 15%, 55%)" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="600">
+                {comp.label}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Compartment dividers */}
+        {hasCompartments && compartmentOffsets.slice(1).map((comp, i) => {
+          const compDef = holdCompartments![i + 1];
+          const x = getColX(compDef.startCol) - compartmentGap / 2;
+          return (
+            <line key={`div-${i}`}
+              x1={x} y1={gridY - 2} x2={x} y2={gridY + gridH + 2}
+              stroke="hsl(215, 15%, 40%)" strokeWidth="1" strokeDasharray="3,2"
+            />
+          );
+        })}
+
+        {/* Cargo position cells */}
+        {enabledCells.map(cell => {
+          const cx = getColX(cell.col);
+          const cy = gridY + cell.row * cellH;
           const status = getCellStatus(cell);
           const isSelected = selectedCell?.row === cell.row && selectedCell?.col === cell.col;
+          const label = cell.label || `${cell.col + 1}`;
 
           return (
             <g
@@ -157,55 +221,46 @@ const AircraftFuselage: React.FC<AircraftFuselageProps> = ({
               tabIndex={0}
             >
               <rect
-                x={cx + 2}
-                y={cy + 2}
-                width={cellW - 4}
-                height={cellH - 4}
-                rx={6}
+                x={cx + 1} y={cy + 1}
+                width={cellW - 2} height={cellH - 2}
+                rx={4}
                 fill={statusColors[status]}
-                stroke={isSelected ? 'hsl(210, 70%, 65%)' : statusBorders[status]}
-                strokeWidth={isSelected ? 2.5 : 1.5}
-                strokeDasharray={isSelected ? '4,2' : 'none'}
-                opacity={0.95}
+                stroke={isSelected ? 'hsl(210, 70%, 65%)' : statusStrokes[status]}
+                strokeWidth={isSelected ? 2 : 1}
+                strokeDasharray={isSelected ? '3,1.5' : 'none'}
               />
               {cell.entry ? (
                 <>
-                  <text x={cx + cellW / 2} y={cy + 16} textAnchor="middle" fill="white" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="600">
-                    {cell.entry.uldType || ''}
+                  <text x={cx + cellW / 2} y={cy + 14} textAnchor="middle" fill="white" fontSize="8" fontFamily="JetBrains Mono, monospace" fontWeight="600">
+                    {cell.entry.uldType}
                   </text>
-                  <text x={cx + cellW / 2} y={cy + 28} textAnchor="middle" fill="white" fontSize="8" fontFamily="JetBrains Mono, monospace" opacity="0.9">
-                    {cell.entry.uldId.slice(0, 8)}
+                  <text x={cx + cellW / 2} y={cy + 24} textAnchor="middle" fill="white" fontSize="7" fontFamily="JetBrains Mono, monospace" opacity="0.85">
+                    {cell.entry.uldId.slice(0, 7)}
                   </text>
-                  <text x={cx + cellW / 2} y={cy + 39} textAnchor="middle" fill="white" fontSize="8" fontFamily="JetBrains Mono, monospace" opacity="0.7">
+                  <text x={cx + cellW / 2} y={cy + 33} textAnchor="middle" fill="white" fontSize="7" fontFamily="JetBrains Mono, monospace" opacity="0.7">
                     {cell.entry.weight}kg
-                  </text>
-                  <text x={cx + cellW / 2} y={cy + 49} textAnchor="middle" fill="white" fontSize="7" fontFamily="JetBrains Mono, monospace" opacity="0.6">
-                    {cell.entry.commodity.slice(0, 8)}
                   </text>
                 </>
               ) : (
-                <text x={cx + cellW / 2} y={cy + cellH / 2 + 4} textAnchor="middle" fill="hsl(215, 15%, 55%)" fontSize="10" fontFamily="JetBrains Mono, monospace">
-                  {String.fromCharCode(65 + cell.row)}{cell.col + 1}
+                <text x={cx + cellW / 2} y={cy + cellH / 2 + 3} textAnchor="middle" fill="hsl(215, 15%, 50%)" fontSize="9" fontFamily="JetBrains Mono, monospace">
+                  {label}
                 </text>
               )}
               {status === 'conflict' && (
-                <text x={cx + cellW - 10} y={cy + 14} fill="hsl(0, 0%, 100%)" fontSize="12" fontWeight="bold">⚠</text>
+                <text x={cx + cellW - 10} y={cy + 12} fill="white" fontSize="10" fontWeight="bold">⚠</text>
               )}
               {status === 'overload' && (
-                <text x={cx + cellW - 16} y={cy + 13} fill="hsl(0, 0%, 100%)" fontSize="7" fontFamily="JetBrains Mono, monospace" fontWeight="bold">OVR</text>
+                <text x={cx + cellW - 14} y={cy + 11} fill="white" fontSize="6" fontFamily="JetBrains Mono, monospace" fontWeight="bold">OVR</text>
               )}
             </g>
           );
         })}
 
-        {/* Hold compartment labels */}
-        {cols > 4 && (
+        {/* Row labels (L/R or position numbering) */}
+        {rows === 2 && (
           <>
-            <line x1={gridX} y1={gridY + Math.floor(cols / 2) * cellH} x2={gridX + gridW} y2={gridY + Math.floor(cols / 2) * cellH}
-              stroke="hsl(215, 15%, 40%)" strokeWidth="1" strokeDasharray="3,3" />
-            <text x={centerX} y={gridY + Math.floor(cols / 2) * cellH - 4} textAnchor="middle" fill="hsl(215, 15%, 45%)" fontSize="8" fontFamily="JetBrains Mono, monospace">
-              FWD HOLD ↑ | ↓ AFT HOLD
-            </text>
+            <text x={gridX - 8} y={gridY + cellH / 2 + 3} textAnchor="middle" fill="hsl(215, 15%, 45%)" fontSize="8" fontFamily="JetBrains Mono, monospace">R</text>
+            <text x={gridX - 8} y={gridY + cellH + cellH / 2 + 3} textAnchor="middle" fill="hsl(215, 15%, 45%)" fontSize="8" fontFamily="JetBrains Mono, monospace">R</text>
           </>
         )}
       </svg>

@@ -221,12 +221,13 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-muted-foreground inline-block" /> Pax Door</span>
       </div>
 
-      {/* 2D Aircraft Fuselage - Portrait View */}
+      {/* 2D Aircraft Fuselage - Horizontal View */}
       <AircraftFuselage
         rows={plan.rows}
         cols={plan.cols}
         cells={plan.cells}
         doors={doors}
+        holdCompartments={plan.holdCompartments}
         selectedCell={selectedCell}
         getCellStatus={getCellStatus}
         onCellTap={handleCellTap}
@@ -245,7 +246,7 @@ const LoadPlanEditor: React.FC<LoadPlanEditorProps> = ({ plan: initialPlan, onBa
         <div className="bg-card rounded-lg p-4 border border-border space-y-3">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-semibold">
-              Position {String.fromCharCode(65 + selectedCell.row)}{selectedCell.col + 1}
+              Position {plan.cells.find(c => c.row === selectedCell.row && c.col === selectedCell.col)?.label || `${String.fromCharCode(65 + selectedCell.row)}${selectedCell.col + 1}`}
               <span className="text-muted-foreground font-normal ml-2">
                 (Max: {plan.cells.find(c => c.row === selectedCell.row && c.col === selectedCell.col)?.maxWeight}kg)
               </span>
