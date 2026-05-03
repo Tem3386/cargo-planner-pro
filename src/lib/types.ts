@@ -3,6 +3,7 @@ export interface Position {
   col: number;
   maxWeight: number;
   enabled: boolean;
+  label?: string; // e.g. "11", "25", "BULK"
 }
 
 export type ULDType = 'LD3' | 'LD7' | 'LD11' | 'LD26' | 'LD29' | 'PMC' | 'PAG' | 'PLA';
@@ -34,11 +35,20 @@ export const ULD_TYPES: { value: ULDType; label: string; description: string }[]
   { value: 'PLA', label: 'PLA Pallet', description: '88×108" lower deck pallet' },
 ];
 
+export interface HoldCompartment {
+  id: string;
+  label: string; // e.g. "H1", "H2", "BULK"
+  startCol: number;
+  endCol: number; // inclusive
+  type: 'container' | 'pallet' | 'bulk';
+}
+
 export interface CellData {
   row: number;
   col: number;
   maxWeight: number;
   enabled: boolean;
+  label?: string;
   entry?: ULDEntry;
   sequenceNumber?: number;
 }
@@ -50,6 +60,7 @@ export interface AircraftTemplate {
   rows: number;
   cols: number;
   positions: Position[];
+  holdCompartments?: HoldCompartment[];
   createdAt: number;
   updatedAt: number;
 }
@@ -63,6 +74,7 @@ export interface FlightPlan {
   rows: number;
   cols: number;
   cells: CellData[];
+  holdCompartments?: HoldCompartment[];
   mode: 'loading' | 'unloading';
   version: number;
   createdAt: number;
