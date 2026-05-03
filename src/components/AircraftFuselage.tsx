@@ -66,8 +66,8 @@ const AircraftFuselage: React.FC<AircraftFuselageProps> = ({
     }
     // Find which compartment this col belongs to
     let x = gridX;
-    for (const comp of compartments) {
-      const compDef = holdCompartments!.find(h => h.label === comp.label)!;
+    for (const compOff of compartmentOffsets) {
+      const compDef = holdCompartments!.find(h => h.label === compOff.label)!;
       if (col >= compDef.startCol && col <= compDef.endCol) {
         return x + (col - compDef.startCol) * cellW;
       }
