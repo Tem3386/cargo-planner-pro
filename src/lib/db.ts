@@ -1,4 +1,5 @@
 import type { AircraftTemplate, FlightPlan, FlightVersion } from './types';
+import { DEFAULT_TEMPLATES } from './defaultTemplates';
 
 const DB_NAME = 'AircraftLoadPlanner';
 const DB_VERSION = 1;
