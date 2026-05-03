@@ -61,9 +61,6 @@ const AircraftFuselage: React.FC<AircraftFuselageProps> = ({
   // Get column X position accounting for compartment gaps
   const getColX = (col: number): number => {
     if (!hasCompartments) return gridX + col * cellW;
-    for (const comp of compartments) {
-      if (col >= comp.startX / cellW) continue;
-    }
     // Find which compartment this col belongs to
     let x = gridX;
     for (const compOff of compartmentOffsets) {
